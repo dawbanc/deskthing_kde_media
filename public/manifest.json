@@ -1,0 +1,17 @@
+{
+  "label": "KDE Media",
+  "isAudioSource": true,
+  "isScreenSaver": false,
+  "isWebApp": false,
+  "requires": [],
+  "version": "0.10.6",
+  "description": "None",
+  "author": "dawbanc",
+  "platforms": [
+    "linux"
+  ],
+  "homepage": "",
+  "repository": "",
+  "id": "kde-media",
+  "template": "full"
+}
