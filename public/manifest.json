@@ -1,6 +1,6 @@
 {
   "label": "KDE Media",
-  "isAudioSource": true,
+  "isAudioSource": false,
   "isScreenSaver": false,
   "isWebApp": false,
   "requires": [],
