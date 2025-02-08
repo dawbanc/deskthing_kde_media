@@ -3,72 +3,44 @@ import { DeskThing, SocketData } from "deskthing-server";
 export { DeskThing };
 
 import { sendImage, sendSampleData } from "./sendingData";
-import { sendCurrentPlayingData } from "./kde_players.ts";
+import { sendCurrentPlayingData, setCommand } from "./kde_players.ts";
+
+let lastRequestTime = 0;
+let isRequestPending = false;
 
 const handleRequest = async (request: SocketData) => {
-  if (request.request === "song") {
-    // send song data
-    DeskThing.sendLog("Request for song data recieved");
-    sendCurrentPlayingData();
-  } else if (request.request === "refresh") {
-    DeskThing.sendLog("Request for refresh recieved");
-    sendCurrentPlayingData();
-  } else {
-    DeskThing.sendError("Unknown request from client..." + request.request);
+  const currentTime = Date.now();
+
+  if (currentTime - lastRequestTime < 2000) {
+    return; // Ignore the request
+  }
+  if (isRequestPending) {
+    return; // Ignore the request
+  }
+
+  isRequestPending = true; // Set flag to indicate a request is in progress
+  lastRequestTime = currentTime; // Update the last request time
+
+  try {
+    if (request.request === "song") {
+      DeskThing.sendLog("Request for song data received");
+      await sendCurrentPlayingData(); // Await the sendCurrentPlayingData function
+    } else if (request.request === "refresh") {
+      DeskThing.sendLog("Request for refresh received");
+      await sendCurrentPlayingData(); // Await the sendCurrentPlayingData function
+    } else {
+      DeskThing.sendError("Unknown request from client..." + request.request);
+    }
+  } catch (error) {
+    DeskThing.sendError("Error handling request: " + error);
+  } finally {
+    isRequestPending = false; // Reset the flag in *all* cases (success or error)
   }
 };
 
 const handleSet = async (request: SocketData) => {
-  switch (request.request) {
-    case "next":
-      // call next
-      DeskThing.sendLog("Next pressed");
-      break;
-    case "previous":
-      // call previous
-      DeskThing.sendLog("Previous pressed");
-      break;
-    case "fast_forward":
-      // call fastForward
-      DeskThing.sendLog("fast_forward pressed\ndata: " + request.payload);
-      break;
-    case "rewind":
-      // call rewind
-      DeskThing.sendLog("rewind pressed\ndata: " + request.payload);
-      break;
-    case "play":
-      // call play
-      DeskThing.sendLog("play pressed\ndata: " + request.payload);
-      break;
-    case "pause":
-      // call pause?
-      DeskThing.sendLog("pause pressed");
-      break;
-    case "stop":
-      // call stop
-      DeskThing.sendLog("stop pressed");
-      break;
-    case "seek":
-      // call seek
-      DeskThing.sendLog("seek called\ndata: " + request.payload);
-      break;
-    case "like":
-      // call like
-      DeskThing.sendLog("like called");
-      break;
-    case "volume":
-      // call volume
-      DeskThing.sendLog("volume called\ndata: " + request.payload);
-      break;
-    case "repeat":
-      // call repeat
-      DeskThing.sendLog("repeat called\ndata: " + request.payload);
-      break;
-    case "shuffle":
-      DeskThing.sendLog("shuffle called\ndata: " + request.payload);
-      break;
-  }
-      
+    DeskThing.sendLog("Set Data: " + request);
+    await setCommand(request);
 }
 
 const start = async () => {

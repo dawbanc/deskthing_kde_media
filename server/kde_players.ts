@@ -7,13 +7,10 @@ import * as fs from "fs/promises";
 import { exec } from 'child_process';
 import tmp from 'tmp';
 
-let dbus;
 let bus;
-let serviceNameBus;
-let Variant;
-
 let serviceName;
 
+let object;
 let player;
 let properties;
 
@@ -57,7 +54,7 @@ async function init() {
   
       await detectPlayers();
   
-      const object = await bus.getProxyObject(serviceName, '/org/mpris/MediaPlayer2');
+      object = await bus.getProxyObject(serviceName, '/org/mpris/MediaPlayer2');
       player = await object.getInterface('org.mpris.MediaPlayer2.Player');
       properties = await object.getInterface('org.freedesktop.DBus.Properties');
   } catch (error) {
@@ -152,6 +149,7 @@ export async function sendCurrentPlayingData() {
 
     //   DeskThing.sendLog(`Artist: ` + artist);
     DeskThing.sendLog(`Title: ` + title); // leaving uncommented for now for testing
+    DeskThing.sendLog('Position: ' + Number(song_props.Position?.value / BigInt(1000)))
     //   DeskThing.sendLog(`Album: ` + album);
     //   DeskThing.sendLog('---'); 
     const response = {
@@ -163,13 +161,13 @@ export async function sendCurrentPlayingData() {
         artist: artist || "Unknown",
         track_name: title || "Unknown",
         thumbnail: thumbnail,
-        track_length: 0,
-        track_progress: 0,
-        is_playing: true,
-        volume: 0,
-        shuffle_state: false,
-        repeat_state: false,
-        can_play: false,
+        track_length: Number(metadata["mpris:length"]?.value / BigInt(1000)) || 0,
+        track_progress: Number(song_props.Position?.value / BigInt(1000)) || 0,
+        is_playing: song_props.PlaybackStatus?.value === "Playing",
+        volume: (song_props.Volume?.value || 0) * 100,
+        shuffle_state: song_props.Shuffle?.value || false,
+        repeat_state: song_props.LoopStatus?.value || "None",
+        can_play: song_props.CanPlay?.value || false,
         can_change_volume: true,
         playlist: "Not implemented",
     },
@@ -182,6 +180,12 @@ export async function sendCurrentPlayingData() {
 }
 
 export async function setCommand(request: SocketData) {
+  // const object = await bus.getProxyObject(serviceName, '/org/mpris/MediaPlayer2');
+  // const player = await object.getInterface('org.mpris.MediaPlayer2.Player');
+  if (player === null) {
+    DeskThing.sendLog("player is null; cannot process request");
+    return;
+  }
   switch (request.request) {
     case "next":
       // call next
@@ -201,17 +205,18 @@ export async function setCommand(request: SocketData) {
       break;
     case "play":
       // call play
-      player.Play();
-      DeskThing.sendLog("play pressed\ndata: " + request.payload);
+      await player.Play();
+      DeskThing.sendLog("play pressed\nPlayer is null:" + (player === null));
       break;
     case "pause":
       // call pause?
-      player.Pause();
-      DeskThing.sendLog("pause pressed");
+      await player.Pause();
+      DeskThing.sendLog("pause pressed\nPlayer is null:" + (player === null));
       break;
     case "stop":
       // call stop
-      DeskThing.sendLog("stop pressed");
+      await player.Stop();
+      DeskThing.sendLog("stop pressed\nPlayer is null:" + (player === null));
       break;
     case "seek":
       // call seek
