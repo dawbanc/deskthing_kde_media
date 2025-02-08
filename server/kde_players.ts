@@ -189,10 +189,12 @@ export async function setCommand(request: SocketData) {
   switch (request.request) {
     case "next":
       // call next
+      await player.Next();
       DeskThing.sendLog("Next pressed");
       break;
     case "previous":
       // call previous
+      player.Previous();
       DeskThing.sendLog("Previous pressed");
       break;
     case "fast_forward":
@@ -220,6 +222,9 @@ export async function setCommand(request: SocketData) {
       break;
     case "seek":
       // call seek
+      const trackId = (await properties.Get('org.mpris.MediaPlayer2.Player', 'Metadata')).value['mpris:trackid'].value;
+      const position = BigInt(Number(request.payload) * 1000);
+      await player.SetPosition(trackId, position);
       DeskThing.sendLog("seek called\ndata: " + request.payload);
       break;
     case "like":
@@ -228,14 +233,28 @@ export async function setCommand(request: SocketData) {
       break;
     case "volume":
       // call volume
+      const vol = new dbusnext.Variant('d', Math.round(Number(request.payload) / 100));
+      await properties.Set('org.mpris.MediaPlayer2.Player', 'Volume', vol);
       DeskThing.sendLog("volume called\ndata: " + request.payload);
       break;
     case "repeat":
       // call repeat
-      DeskThing.sendLog("repeat called\ndata: " + request.payload);
+      if (request.payload){
+        const repeat = new dbusnext.Variant('s', String(request.payload).charAt(0).toUpperCase() + String(request.payload).slice(1));
+        await properties.Set('org.mpris.MediaPlayer2.Player', 'LoopStatus', repeat);
+        DeskThing.sendLog("repeat called\ndata: " + request.payload);        
+      } else {
+        
+      }
       break;
     case "shuffle":
-      DeskThing.sendLog("shuffle called\ndata: " + request.payload);
+      if (request.payload){
+        const shuffle = new dbusnext.Variant('b', String(request.payload));
+        await properties.Set('org.mpris.MediaPlayer2.Player', 'Shuffle', shuffle);
+        DeskThing.sendLog("shuffle called\ndata: " + request.payload);
+      } else {
+        DeskThing.sendError("Repeat called but payload is empty");
+      }
       break;
   }
 }
