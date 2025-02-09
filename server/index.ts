@@ -39,7 +39,7 @@ const handleRequest = async (request: SocketData) => {
 };
 
 const handleSet = async (request: SocketData) => {
-    DeskThing.sendLog("Set Data: " + request);
+    DeskThing.sendLog("Set Data: " + request.request + "\nSet Value: " + request.payload);
     await setCommand(request);
 }
 

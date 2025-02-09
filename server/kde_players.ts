@@ -88,32 +88,39 @@ async function encodeImageFromUrl(uri: string, type: "jpeg" | "gif" = "jpeg", re
     }
 
     return new Promise<string | null>((resolve, reject) => {
-      tmp.file({ postfix: `.${type}` }, async (err, path, cleanupCallback) => { 
+      tmp.file({ postfix: `.${type}` }, async (err, path, cleanupCallback) => {
         if (err) {
           DeskThing.sendError("Error creating temporary file: " + err);
           return resolve(null);
         }
-
+  
         try {
-          await fs.writeFile(path, image_buf); 
+          await fs.writeFile(path, image_buf); // Use fs.promises.writeFile
+  
           exec(`convert ${path} -format ${type} ${path}`, async (error, stdout, stderr) => {
             if (error) {
               DeskThing.sendError(`ImageMagick error: ${error}`);
+              if (stderr) {
+                DeskThing.sendError(`ImageMagick stderr: ${stderr}`);
+              }
+              cleanupCallback(); // Cleanup even on error
               resolve(null);
             } else {
               try {
-                const converted_buf = await fs.readFile(path); 
+                const converted_buf = await fs.readFile(path); // Use fs.promises.readFile
                 const base64 = converted_buf.toString("base64");
                 resolve(`data:image/${type};base64,${base64}`);
               } catch (readError) {
                 DeskThing.sendError(`Error reading converted image: ${readError}`);
                 resolve(null);
+              } finally { // Ensure cleanup happens *after* reading
+                cleanupCallback();
               }
             }
-            cleanupCallback();
           });
         } catch (writeErr) {
           DeskThing.sendError("Error writing to temporary file: " + writeErr);
+          cleanupCallback(); // Cleanup even on write error
           resolve(null);
         }
       });
@@ -133,12 +140,15 @@ async function encodeImageFromUrl(uri: string, type: "jpeg" | "gif" = "jpeg", re
 
 export async function sendCurrentPlayingData() {
   if (!initialized) {
-    init();
+    await init();
+  }
+  if (!properties) {
+    DeskThing.sendLog("Properties not ready yet");
+    return;
   }
   try {
     const song_props = await properties.GetAll('org.mpris.MediaPlayer2.Player');
     const metadata = song_props.Metadata.value;
-    //DeskThing.sendLog('METADATA: ' + JSON.stringify(metadata, (_, v) => typeof v === 'bigint' ? v.toString() : v));
 
     // Extract relevant information from the metadata
     const artist = metadata?.['xesam:artist']?.value[0] as string | undefined;
@@ -149,7 +159,12 @@ export async function sendCurrentPlayingData() {
 
     //   DeskThing.sendLog(`Artist: ` + artist);
     DeskThing.sendLog(`Title: ` + title); // leaving uncommented for now for testing
-    DeskThing.sendLog('Position: ' + Number(song_props.Position?.value / BigInt(1000)))
+    DeskThing.sendLog('Position: ' + Number(song_props.Position?.value / BigInt(1000)));
+    DeskThing.sendLog('length: ' + Number(metadata["mpris:length"]?.value / BigInt(1000)));
+    // track_length: Number(metadata["mpris:length"]?.value / BigInt(1000)) || 0, // OLD
+    // track_progress: Number(song_props.Position?.value / BigInt(1000)) || 0,
+    // track_length: 10000,       // NEW?
+    //     track_progress: Number(song_props.Position?.value / metadata["mpris:length"]?.value) * 10000 || 0,
     //   DeskThing.sendLog(`Album: ` + album);
     //   DeskThing.sendLog('---'); 
     const response = {
@@ -161,7 +176,7 @@ export async function sendCurrentPlayingData() {
         artist: artist || "Unknown",
         track_name: title || "Unknown",
         thumbnail: thumbnail,
-        track_length: Number(metadata["mpris:length"]?.value / BigInt(1000)) || 0,
+        track_length: Number(metadata["mpris:length"]?.value / BigInt(1000)) || 0, // OLD
         track_progress: Number(song_props.Position?.value / BigInt(1000)) || 0,
         is_playing: song_props.PlaybackStatus?.value === "Playing",
         volume: (song_props.Volume?.value || 0) * 100,
@@ -173,59 +188,104 @@ export async function sendCurrentPlayingData() {
     },
     };
     DeskThing.send(response);
-
   } catch (error) {
     DeskThing.sendError('Error:' + error);
   }
 }
 
 export async function setCommand(request: SocketData) {
-  // const object = await bus.getProxyObject(serviceName, '/org/mpris/MediaPlayer2');
-  // const player = await object.getInterface('org.mpris.MediaPlayer2.Player');
-  if (player === null) {
-    DeskThing.sendLog("player is null; cannot process request");
+  if ((player === null) || (properties === null)) {
+    DeskThing.sendLog("player or properties are null; cannot process request");
     return;
-  }
+  } 
   switch (request.request) {
     case "next":
       // call next
       await player.Next();
-      DeskThing.sendLog("Next pressed");
+      //DeskThing.sendLog("Next pressed");
       break;
     case "previous":
       // call previous
       player.Previous();
-      DeskThing.sendLog("Previous pressed");
+      //DeskThing.sendLog("Previous pressed");
       break;
     case "fast_forward":
       // call fastForward
-      DeskThing.sendLog("fast_forward pressed\ndata: " + request.payload);
+      //DeskThing.sendLog("fast_forward pressed\ndata: " + request.payload);
       break;
     case "rewind":
       // call rewind
-      DeskThing.sendLog("rewind pressed\ndata: " + request.payload);
+      //DeskThing.sendLog("rewind pressed\ndata: " + request.payload);
       break;
     case "play":
       // call play
       await player.Play();
-      DeskThing.sendLog("play pressed\nPlayer is null:" + (player === null));
+      //DeskThing.sendLog("play pressed\nPlayer is null:" + (player === null));
       break;
     case "pause":
       // call pause?
       await player.Pause();
-      DeskThing.sendLog("pause pressed\nPlayer is null:" + (player === null));
+      //DeskThing.sendLog("pause pressed\nPlayer is null:" + (player === null));
       break;
     case "stop":
       // call stop
       await player.Stop();
-      DeskThing.sendLog("stop pressed\nPlayer is null:" + (player === null));
+      //DeskThing.sendLog("stop pressed\nPlayer is null:" + (player === null));
       break;
     case "seek":
       // call seek
-      const trackId = (await properties.Get('org.mpris.MediaPlayer2.Player', 'Metadata')).value['mpris:trackid'].value;
-      const position = BigInt(Number(request.payload) * 1000);
-      await player.SetPosition(trackId, position);
-      DeskThing.sendLog("seek called\ndata: " + request.payload);
+      // const song_props = await properties.GetAll('org.mpris.MediaPlayer2.Player');
+      // const metadata = song_props.Metadata.value;
+
+      // const length = Number(metadata["mpris:length"]?.value / BigInt(1000));
+      // DeskThing.sendLog('Length: ' + metadata["mpris:length"]?.value);
+
+      // const trackID = metadata?.['xesam:title'].value as string | undefined;
+      // DeskThing.sendLog(`Title: ` + trackID);
+
+      // const seek = Number(request.payload) / 10000;
+      // DeskThing.sendLog(`Seek: ` + seek);
+
+      // const position = Math.round(length * seek);
+
+      // DeskThing.sendLog("seek called\nrecieved:" + request.payload + "\nseek: " + seek + "\nseeking to: " + position + "\nlength: " + length);
+      // await player.SetPosition(trackID, position);
+      // DeskThing.sendLog("seek completed");
+      try {
+        const song_props = await properties.GetAll('org.mpris.MediaPlayer2.Player');
+        const metadata = song_props.Metadata.value;
+    
+        const lengthBigInt = metadata["mpris:length"]?.value;  // Get as BigInt
+        if (lengthBigInt === undefined) {
+          DeskThing.sendLog('Error: mpris:length is undefined');
+          return; // Or throw an error
+        }
+    
+        const lengthSeconds = Number(lengthBigInt / 1000n); // Convert to seconds (Number)
+        DeskThing.sendLog('Length (seconds): ' + lengthSeconds);
+    
+        const trackID = metadata?.['xesam:title']?.value as string | undefined; // Optional chaining
+        if (trackID === undefined) {
+          DeskThing.sendLog('Error: xesam:title is undefined');
+          return; // Or throw an error
+        }
+        DeskThing.sendLog(`Title: ${trackID}`);
+    
+        const seekPercent = Number(request.payload) / 10000; // Percentage (0-1)
+        DeskThing.sendLog(`Seek (percentage): ${seekPercent}`);
+    
+        const positionMicrosecondsBigInt = BigInt(Math.round(lengthSeconds * seekPercent * 1000000)); // Calculate position in microseconds (BigInt)
+    
+        DeskThing.sendLog("Seek called\nreceived:" + request.payload + "\nseek (percentage): " + seekPercent + "\nseeking to (microseconds): " + positionMicrosecondsBigInt + "\nlength (seconds): " + lengthSeconds);
+    
+        //const positionMicrosecondsString = positionMicrosecondsBigInt.toString();
+        await player.SetPosition(trackID, positionMicrosecondsBigInt); 
+        DeskThing.sendLog("Seek completed");
+    
+      } catch (error) {
+        DeskThing.sendError(`Error during seek: ${error}`); // Proper error handling
+      }
+
       break;
     case "like":
       // call like
@@ -235,25 +295,25 @@ export async function setCommand(request: SocketData) {
       // call volume
       const vol = new dbusnext.Variant('d', Math.round(Number(request.payload) / 100));
       await properties.Set('org.mpris.MediaPlayer2.Player', 'Volume', vol);
-      DeskThing.sendLog("volume called\ndata: " + request.payload);
+      //DeskThing.sendLog("volume called\ndata: " + request.payload);
       break;
     case "repeat":
       // call repeat
       if (request.payload){
         const repeat = new dbusnext.Variant('s', String(request.payload).charAt(0).toUpperCase() + String(request.payload).slice(1));
         await properties.Set('org.mpris.MediaPlayer2.Player', 'LoopStatus', repeat);
-        DeskThing.sendLog("repeat called\ndata: " + request.payload);        
+        //DeskThing.sendLog("repeat called\ndata: " + request.payload);        
       } else {
-        
+        DeskThing.sendError("Repeat called but payload is empty");
       }
       break;
     case "shuffle":
       if (request.payload){
         const shuffle = new dbusnext.Variant('b', String(request.payload));
         await properties.Set('org.mpris.MediaPlayer2.Player', 'Shuffle', shuffle);
-        DeskThing.sendLog("shuffle called\ndata: " + request.payload);
+        //DeskThing.sendLog("shuffle called\ndata: " + request.payload);
       } else {
-        DeskThing.sendError("Repeat called but payload is empty");
+        DeskThing.sendError("Shuffle called but payload is empty");
       }
       break;
   }
